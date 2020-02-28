@@ -16,10 +16,22 @@ class AccountServiceSpec extends AsyncFreeSpec with AsyncIOSpec with Matchers {
           created <- svc.create("test", 150)
           newAccount <- svc.get(created.id)
         } yield newAccount
-      ) asserting { opt =>
+        ) asserting { opt =>
         (opt must not be empty)
-//        (opt.get.name must be "test")
-//        (opt.get.amount must be 150)
+        //        (opt.get.name must be "test")
+        //        (opt.get.amount must be 150)
+      }
+    }
+
+    "delete accounts" in {
+      (
+        for {
+          svc <- accountService
+          created <- svc.create("test", 150)
+          isDeleted <- svc.delete(created.id)
+        } yield isDeleted
+      ) asserting { isDeleted =>
+        isDeleted must be (true)
       }
     }
 
@@ -35,7 +47,7 @@ class AccountServiceSpec extends AsyncFreeSpec with AsyncIOSpec with Matchers {
           to1Updated <- svc.get(to1.id)
           to2Updated <- svc.get(to2.id)
         } yield (transfers, fromUpdated.get, to1Updated, to2Updated)
-      ) asserting { case (transfers, fromUpdated, to1Updated, to2Updated) =>
+        ) asserting { case (transfers, fromUpdated, to1Updated, to2Updated) =>
         transfers must have size 2
       }
     }
@@ -52,7 +64,7 @@ class AccountServiceSpec extends AsyncFreeSpec with AsyncIOSpec with Matchers {
           to1Updated <- svc.get(to1.id)
           to2Updated <- svc.get(to2.id)
         } yield (transfers, fromUpdated.get, to1Updated, to2Updated)
-      ).assertThrows[TransferException]
+        ).assertThrows[TransferException]
     }
   }
 }
