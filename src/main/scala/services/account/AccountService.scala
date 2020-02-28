@@ -22,6 +22,7 @@ final case class Transfer(from: AccountId, to: AccountId, amount: Int)
 
 sealed trait TransferError
 case class FromAccountNotFound(accountId: AccountId) extends TransferError
+case object EmptyListOfDestinations extends TransferError
 case class SelfTransferIsNotAllowed(accountId: AccountId) extends TransferError
 case class ToAccountNotFound(accountId: AccountId) extends TransferError
 case class InsufficientAmount(accountId: AccountId) extends TransferError
@@ -89,11 +90,13 @@ final class MemoryAccountService[F[_] : Async](private val accountsRef: Ref[F, M
   }
 
   private def validateFromAndToAccountIds(from: AccountId, to: Set[AccountId], accounts: Map[AccountId, TVar[Account]]) = {
+    val emptyToList: ValidatedNec[TransferError, Unit] = if(to.isEmpty) EmptyListOfDestinations.invalidNec else ().validNec
+
     val fromAccountIdNotInTo: ValidatedNec[TransferError, Unit] =
       if (to.contains(from)) SelfTransferIsNotAllowed(from).invalidNec else ().validNec
 
     val fromTVarValidated: ValidatedNec[TransferError, TVar[Account]] =
-      fromAccountIdNotInTo *> accounts.get(from).toValidNec(FromAccountNotFound(from))
+      emptyToList *> fromAccountIdNotInTo *> accounts.get(from).toValidNec(FromAccountNotFound(from))
 
     val toTVarsValidated: ValidatedNec[TransferError, Map[AccountId, TVar[Account]]] =
       (to -- accounts.keySet).map(ToAccountNotFound).toList match {
@@ -111,7 +114,6 @@ final class MemoryAccountService[F[_] : Async](private val accountsRef: Ref[F, M
       accs - id
     }
   } yield accounts.contains(id)
-
 
   override def get(id: AccountId): F[Option[Account]] = accountsRef.get.flatMap { accs =>
     val accountOpt: Option[F[Account]] =
