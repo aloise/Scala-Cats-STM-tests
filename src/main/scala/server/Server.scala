@@ -4,9 +4,9 @@ import cats.effect.{ConcurrentEffect, ContextShift, Timer}
 import fs2.Stream
 import org.http4s.server.blaze.BlazeServerBuilder
 import routes.{AccountRoutes, HealthRoutes}
-import services.{AccountService, MemoryAccountService}
 import cats.implicits._
 import org.http4s.implicits._
+import services.account.{AccountService, MemoryAccountService}
 
 object Server {
 

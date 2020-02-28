@@ -1,32 +1,20 @@
-package services
+package services.account
 
+import cats.Applicative
 import cats.data.Validated.{Invalid, Valid}
-import cats.data.{NonEmptyChain, Validated, ValidatedNec}
-import cats.{Applicative, ApplicativeError, MonadError}
-import cats.effect.{Async, Sync}
+import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.effect.concurrent.Ref
-import io.github.timwspence.cats.stm.{STM, TVar}
+import cats.effect.{Async, Sync}
 import cats.implicits._
-import io.circe.{Codec, Decoder, Encoder}
+import io.circe.Codec
 import io.circe.generic.semiauto._
+import io.github.timwspence.cats.stm.{STM, TVar}
 import org.http4s.circe._
 import org.http4s.{EntityDecoder, EntityEncoder}
 
 case class AccountId(id: Int) extends AnyVal
 
-object AccountId {
-  implicit val accountIdCodec: Codec[AccountId] = deriveCodec
-  implicit def accountIdEntityDecoder[F[_]: Sync]: EntityDecoder[F, Account] = jsonOf
-  implicit def accountIdEntityEncoder[F[_]: Applicative]: EntityEncoder[F, Account] = jsonEncoderOf
-}
-
 final case class Account(id: AccountId, name: String, amount: Int)
-
-object Account {
-  implicit val accountCodec: Codec[Account] = deriveCodec
-  implicit def accountEntityDecoder[F[_]: Sync]: EntityDecoder[F, Account] = jsonOf
-  implicit def accountEntityEncoder[F[_]: Applicative]: EntityEncoder[F, Account] = jsonEncoderOf
-}
 
 final case class TransferId(id: Int) extends AnyVal
 final case class TransferGroupId(id: Int) extends AnyVal
@@ -38,7 +26,7 @@ case class SelfTransferIsNotAllowed(accountId: AccountId) extends TransferError
 case class ToAccountNotFound(accountId: AccountId) extends TransferError
 case class InsufficientAmount(accountId: AccountId) extends TransferError
 
-final case class TransferValidationException(errors: NonEmptyChain[TransferError]) extends
+final case class TransferException(errors: NonEmptyChain[TransferError]) extends
   Exception(s"Transfer Failed: ${errors.toList.mkString(", ")}")
 
 trait AccountService[F[_]] {
@@ -77,7 +65,7 @@ final class MemoryAccountService[F[_] : Async](private val accountsRef: Ref[F, M
 
       STM.atomically[F](flatErrors).flatMap { validated =>
         validated.fold(
-          err => TransferValidationException(err).raiseError[F, List[Transfer]],
+          err => TransferException(err).raiseError[F, List[Transfer]],
           result => Sync[F].pure(result)
         )
       }
