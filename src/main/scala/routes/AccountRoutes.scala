@@ -1,26 +1,16 @@
 package routes
 
-import cats.Applicative
 import cats.effect.Sync
-import org.http4s.{EntityDecoder, EntityEncoder, HttpRoutes}
+import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import cats.implicits._
-import io.circe.Codec
-import io.circe.generic.semiauto.deriveCodec
-import org.http4s.circe.{jsonEncoderOf, jsonOf}
-import services.account.{Account, AccountId, AccountService}
+import io.circe.{Codec, Decoder, Encoder}
+import io.circe.generic.semiauto._
+import services.account.{Account, AccountId, AccountService, Transfer, TransferError, TransferException}
+
 import scala.util.Try
 
-object AccountRoutes {
-
-  implicit val accountIdCodec: Codec[AccountId] = deriveCodec
-//  implicit def accountIdEntityDecoder[F[_]: Sync]: EntityDecoder[F, Account] = jsonOf
-  implicit def accountIdEntityEncoder[F[_]: Applicative]: EntityEncoder[F, AccountId] = jsonEncoderOf
-
-  implicit val accountCodec: Codec[Account] = deriveCodec
-//  implicit def accountEntityDecoder[F[_]: Sync]: EntityDecoder[F, Account] = jsonOf
-  implicit def accountEntityEncoder[F[_]: Applicative]: EntityEncoder[F, Account] = jsonEncoderOf
-
+object AccountRoutes extends JsonEncoders with AccountRoutesJson {
   object AccountIdVar {
     def unapply(str: String): Option[AccountId] =
       if (!str.trim.isEmpty)
@@ -33,11 +23,57 @@ object AccountRoutes {
     val dsl = new Http4sDsl[F]{}
     import dsl._
     HttpRoutes.of[F] {
-      case GET -> Root / "account" / AccountIdVar(id) =>
+      case GET -> Root / "accounts" / AccountIdVar(id) =>
         for {
           account <- accounts.get(id)
           resp <- account.map(Ok(_)).getOrElse(NotFound())
         } yield resp
+
+      case DELETE -> Root / "accounts" / AccountIdVar(id) =>
+        accounts.delete(id).flatMap {
+          case true => Ok(AccountDeleted(id))
+          case false => NotFound()
+        }
+
+      case req @ POST -> Root / "accounts" =>
+        for {
+          createAccount <- req.as[CreateAccount]
+          // TODO - Validate first
+          newAccount <- accounts.create(createAccount.name, createAccount.amount)
+          resp <- Ok(newAccount)
+        } yield resp
+
+      case req @ POST -> Root / "transfers"  =>
+        for {
+          transferReq <- req.as[TransferRequest]
+          transfers = accounts.transfer(transferReq.fromAccountId, transferReq.toAccountIds)(transferReq.transferAmountForEach)
+          resp <- transfers.flatMap(trx => Ok(TransferSuccess(trx))).recoverWith {
+            case TransferException(errors) => BadRequest(TransferErrorsResponse(errors.toList))
+          }
+        } yield resp
+
+
     }
   }
+}
+
+private[routes] trait AccountRoutesJson {
+  case class CreateAccount(name: String, amount: Int)
+  case class AccountDeleted(deletedAccountId: AccountId)
+  case class TransferRequest(fromAccountId: AccountId, toAccountIds: Set[AccountId], transferAmountForEach: Int)
+
+  case class TransferErrorsResponse(errors: List[TransferError])
+  case class TransferSuccess(transactions: List[Transfer])
+
+  implicit val accountIdCodec: Codec[AccountId] = deriveCodec
+  implicit val accountCodec: Codec[Account] = deriveCodec
+
+  implicit val createAccountDecoder: Decoder[CreateAccount] = deriveDecoder
+  implicit val transferRequestDecoder: Decoder[TransferRequest] = deriveDecoder
+
+  implicit val accountDeletedEncoder: Encoder[AccountDeleted] = deriveEncoder
+  implicit val transferErrorsEncoder: Encoder[TransferError] = deriveEncoder
+  implicit val transferErrorsResponseEncoder: Encoder[TransferErrorsResponse] = deriveEncoder
+  implicit val transferEncoder: Encoder[Transfer] = deriveEncoder
+  implicit val transferSuccessEncoder: Encoder[TransferSuccess] = deriveEncoder
 }

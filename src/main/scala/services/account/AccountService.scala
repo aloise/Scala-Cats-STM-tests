@@ -34,7 +34,7 @@ trait AccountService[F[_]] {
   // transfer is transactional - it's either executed at once of fails
   def get(id: AccountId): F[Option[Account]]
   def transfer(from: AccountId, to: Set[AccountId])(amountForEachTransfer: Int): F[List[Transfer]]
-  def delete(id: AccountId): F[Unit]
+  def delete(id: AccountId): F[Boolean]
 }
 
 final class MemoryAccountService[F[_] : Async](private val accountsRef: Ref[F, Map[AccountId, TVar[Account]]], private val nextIdRef: Ref[F, Int])
@@ -105,9 +105,13 @@ final class MemoryAccountService[F[_] : Async](private val accountsRef: Ref[F, M
     (fromTVarValidated, toTVarsValidated)
   }
 
-  override def delete(id: AccountId): F[Unit] = accountsRef.update { accs =>
-    accs - id
-  }
+  override def delete(id: AccountId): F[Boolean] = for {
+    accounts <- accountsRef.get
+    _ <- accountsRef.update { accs =>
+      accs - id
+    }
+  } yield accounts.contains(id)
+
 
   override def get(id: AccountId): F[Option[Account]] = accountsRef.get.flatMap { accs =>
     val accountOpt: Option[F[Account]] =
