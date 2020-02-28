@@ -4,8 +4,8 @@ import cats.effect.Sync
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import cats.implicits._
-import io.circe.{Codec, Decoder, Encoder}
-import io.circe.generic.semiauto._
+import io.circe.Decoder.Result
+import io.circe.{HCursor, Json}
 import services.account.{Account, AccountId, AccountService, Transfer, TransferError, TransferException}
 
 import scala.util.Try
@@ -46,7 +46,7 @@ object AccountRoutes extends JsonEncoders with AccountRoutesJson {
       case req @ POST -> Root / "transfers"  =>
         for {
           transferReq <- req.as[TransferRequest]
-          transfers = accounts.transfer(transferReq.fromAccountId, transferReq.toAccountIds)(transferReq.transferAmountForEach)
+          transfers = accounts.transfer(transferReq.fromAccountId, transferReq.toAccountIds.toSet)(transferReq.transferAmountForEach)
           resp <- transfers.flatMap(trx => Ok(TransferSuccess(trx))).recoverWith {
             case TransferException(errors) => BadRequest(TransferErrorsResponse(errors.toList))
           }
@@ -58,14 +58,21 @@ object AccountRoutes extends JsonEncoders with AccountRoutesJson {
 }
 
 private[routes] trait AccountRoutesJson {
+  import io.circe.{Codec, Decoder, Encoder}
+  import io.circe.generic.semiauto._
+
   case class CreateAccount(name: String, amount: Int)
   case class AccountDeleted(deletedAccountId: AccountId)
-  case class TransferRequest(fromAccountId: AccountId, toAccountIds: Set[AccountId], transferAmountForEach: Int)
+  case class TransferRequest(fromAccountId: AccountId, toAccountIds: List[AccountId], transferAmountForEach: Int)
 
   case class TransferErrorsResponse(errors: List[TransferError])
   case class TransferSuccess(transactions: List[Transfer])
 
-  implicit val accountIdCodec: Codec[AccountId] = deriveCodec
+  implicit val accountIdCodec: Codec[AccountId] = new Codec[AccountId] {
+    override def apply(a: AccountId): Json = Json.fromInt(a.id)
+    override def apply(c: HCursor): Result[AccountId] = c.as[Int].map(AccountId)
+  }
+
   implicit val accountCodec: Codec[Account] = deriveCodec
 
   implicit val createAccountDecoder: Decoder[CreateAccount] = deriveDecoder
